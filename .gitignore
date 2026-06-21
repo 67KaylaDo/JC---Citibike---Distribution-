@@ -1,0 +1,32 @@
+# Large data files (uploaded by user in the app)
+*.csv
+*.zip
+*.pdf
+
+# Jupyter notebooks (too large, not needed for app)
+*.ipynb
+
+# Reports and presentations
+*.docx
+*.pptx
+
+# Generated plot images
+*.png
+*.jpg
+
+# Office temp files
+~$*
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# Archive folder
+archive/
