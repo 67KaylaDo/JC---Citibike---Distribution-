@@ -5,6 +5,7 @@ import pydeck as pdk
 import plotly.express as px
 import plotly.graph_objects as go
 import io
+import requests
 
 st.set_page_config(
     page_title="Distribution Management — JC Citi Bike",
@@ -159,19 +160,40 @@ TRUCK_COLORS = [
     [196,156,148],[247,182,210],[199,199,199],[219,219,141],[158,218,229],
 ]
 
+@st.cache_data(show_spinner=False)
+def get_osrm_path(waypoints: tuple) -> list:
+    """Fetch actual road geometry from OSRM for a sequence of [lng, lat] waypoints.
+    Falls back to straight-line coords if the API is unreachable."""
+    coords_str = ";".join(f"{lng},{lat}" for lng, lat in waypoints)
+    url = (
+        f"http://router.project-osrm.org/route/v1/driving/{coords_str}"
+        "?overview=full&geometries=geojson"
+    )
+    try:
+        resp = requests.get(url, timeout=6)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("code") == "Ok":
+                return data["routes"][0]["geometry"]["coordinates"]
+    except Exception:
+        pass
+    return list(waypoints)  # fallback: straight line between waypoints
+
 path_rows, visited_ids = [], set()
 for _, r in win_routes.iterrows():
     raw_stops = [s.strip() for s in r["route"].split("→")]
-    coords = []
+    waypoints = []
     for sid in raw_stops:
         if sid in coord_map:
-            coords.append([coord_map[sid][1], coord_map[sid][0]])
+            waypoints.append((coord_map[sid][1], coord_map[sid][0]))  # lng, lat
             if sid != "__DEPOT__":
                 visited_ids.add(sid)
-    if len(coords) >= 2:
+    if len(waypoints) >= 2:
+        road_path = get_osrm_path(tuple(waypoints))
         c = TRUCK_COLORS[(int(r["truck_id"]) - 1) % len(TRUCK_COLORS)]
         path_rows.append({
-            "path": coords, "color": c,
+            "path":        road_path,
+            "color":       c,
             "truck_id":    int(r["truck_id"]),
             "n_tasks":     int(r["n_tasks"]),
             "bikes":       int(r["bikes_transported"]),
@@ -186,10 +208,10 @@ inactive_df = stations[~stations["station_id"].isin(visited_ids)].copy()
 layers = [
     pdk.Layer("ScatterplotLayer", data=inactive_df,
               get_position=["lng","lat"], get_radius=35,
-              get_fill_color=[180,180,180,120]),
+              get_fill_color=[100,100,120,140]),
     pdk.Layer("ScatterplotLayer", data=visited_df,
               get_position=["lng","lat"], get_radius=55,
-              get_fill_color=[30,100,200,220], pickable=True),
+              get_fill_color=[59,130,246,230], pickable=True),
     pdk.Layer("PathLayer", data=path_rows,
               get_path="path", get_color="color", get_width=5,
               width_min_pixels=2, pickable=True),
@@ -208,11 +230,11 @@ st.pydeck_chart(pdk.Deck(
         "Peak load (max at once): {peak_load} bikes<br/>"
         "Distance: {distance_km} km  ·  Time: {time_min} min"
     )},
-    map_style="mapbox://styles/mapbox/light-v10",
+    map_style="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
 ), height=460, use_container_width=True)
 st.caption(
     "🔴 Depot (Journal Square)  ·  🔵 Active stations  ·  "
-    "Grey = inactive  ·  Lines = truck routes (colour = one truck)"
+    "Grey = inactive  ·  Lines = actual OSRM road paths (colour = one truck)"
 )
 
 st.divider()
